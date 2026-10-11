@@ -1,0 +1,1124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>果蝇玩 2048 · 单屏大脑互动台</title>
+<style>
+  :root {
+    --bg: #f3f3f3;
+    --panel: #ffffff;
+    --ink: #1f1f1f;
+    --muted: #6e6e6e;
+    --fill: #f5f5f5;
+    --accent: #0078d7;
+    --accent-hover: #1975c2;
+    --accent-pressed: #005499;
+    --accent-soft: #deecf9;
+    --green: #107c10;
+    --green-soft: #dff6dd;
+    --red: #c42b1c;
+    --red-soft: #fde7e9;
+    --amber: #9a6c00;
+    --amber-soft: #fff2cc;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 13px;
+    overflow: hidden;
+  }
+  header {
+    height: 46px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 16px;
+    background: #ffffff;
+    color: var(--ink);
+    white-space: nowrap;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    z-index: 10;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header p { margin: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+  header a#consoleLink {
+    color: var(--accent); text-decoration: none; font-size: 12px; font-weight: 600;
+    background: var(--accent-soft); border-radius: 4px; padding: 4px 10px;
+  }
+  header a#consoleLink:hover { background: #cce4f7; }
+  main {
+    height: calc(100vh - 46px);
+    padding: 10px 12px;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.25fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(150px, 24vh);
+    grid-template-areas:
+      "board heat right"
+      "board heat right"
+      "learning learning learning";
+  }
+  .card {
+    background: var(--panel);
+    border: none;
+    border-radius: 4px;
+    padding: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.075);
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .card h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .board-card { grid-area: board; }
+  .heat-card { grid-area: heat; }
+  .right-col {
+    grid-area: right; display: grid; gap: 8px;
+    grid-template-rows: minmax(0, 1fr) auto;
+    min-height: 0;
+  }
+  .right-col > .card { min-height: 0; overflow: hidden; padding: 8px 10px; }
+  .right-col > .card:first-child { overflow-y: auto; }
+  .learning-card { grid-area: learning; }
+  .panel-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .panel-heading h2 { margin: 0; }
+  .model-tag {
+    padding: 3px 8px;
+    border-radius: 3px;
+    background: var(--accent-soft);
+    color: #0b5e9e;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .model-tag.warn { background: var(--amber-soft); color: var(--amber); }
+  .canvas-holder {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    place-items: center;
+  }
+  #boardCanvas {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 4px;
+    background: #bbada0;
+  }
+  #heatCanvas {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 3px;
+    background: var(--fill);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.07);
+  }
+  #learningCanvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 3px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.07);
+  }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
+  .stat {
+    background: var(--fill);
+    border: none;
+    border-radius: 3px;
+    padding: 5px 7px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .stat b { display: block; font-size: 10px; color: var(--muted); font-weight: 600; }
+  .stat span { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .reward-badge {
+    position: absolute;
+    top: 14%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 5px 14px;
+    border-radius: 4px;
+    font-size: 17px;
+    font-weight: 700;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 5;
+    font-variant-numeric: tabular-nums;
+  }
+  .reward-badge.pos {
+    background: var(--green-soft);
+    color: #0b6a0b;
+    animation: floatUp 950ms ease-out forwards;
+  }
+  .reward-badge.neg {
+    background: var(--red-soft);
+    color: var(--red);
+    animation: floatUp 950ms ease-out forwards;
+  }
+  @keyframes floatUp {
+    0% { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.8); }
+    25% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    80% { opacity: 1; }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-16px) scale(0.95); }
+  }
+  .controls-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .weight-row {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .weight-row label { font-size: 12px; font-weight: 700; color: var(--muted); flex: none; }
+  .weight-row select {
+    flex: 1 1 150px; min-width: 120px;
+    border: 1px solid #d0d0d0; border-radius: 4px;
+    padding: 5px 8px; font-size: 12px; background: #fff; color: var(--ink);
+  }
+  .weight-row select:disabled { background: #f0f0f0; }
+  .weight-row button { padding: 5px 10px; font-size: 12px; flex: none; }
+  button {
+    border: none;
+    border-radius: 4px;
+    padding: 7px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--fill);
+    color: var(--ink);
+  }
+  button:hover { background: #e6e6e6; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #runButton { background: var(--green); color: #fff; }
+  #runButton:hover { background: #0e6e0e; }
+  #runButton:active { background: #0b5a0b; }
+  #pauseButton { background: var(--fill); color: var(--ink); }
+  #stepButton { background: var(--accent); color: #fff; }
+  #stepButton:hover { background: var(--accent-hover); }
+  #stepButton:active { background: var(--accent-pressed); }
+  #resetButton { background: var(--fill); color: var(--ink); }
+  .status {
+    margin-top: 8px;
+    padding: 7px 9px;
+    border-radius: 3px;
+    font-size: 12px;
+    background: #f0f6fc;
+    color: #0b4a7d;
+    line-height: 1.45;
+  }
+  .status .pos { color: var(--green); font-weight: 700; }
+  .status .neg { color: var(--red); font-weight: 700; }
+  .prob-bars { display: grid; gap: 4px; }
+  .prob-row {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr) 48px;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .prob-row b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .prob-track { height: 8px; border-radius: 2px; background: #e6e6e6; overflow: hidden; }
+  .prob-fill {
+    display: block;
+    width: 0%;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--accent);
+    transition: width 180ms;
+  }
+  .prob-row.chosen .prob-fill { background: var(--green); }
+  .prob-row.chosen b { color: var(--green); }
+  .prob-note { margin-top: 6px; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .brain-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 500;
+    flex: none;
+    margin-top: 6px;
+  }
+  .brain-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .heat-legend { flex: none; color: var(--muted); font-size: 11px; margin-top: 5px; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: #c1c1c1; border-radius: 5px;
+    border: 3px solid transparent; background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+    border: 3px solid transparent; background-clip: content-box;
+  }
+  @media (max-height: 700px) {
+    body { overflow: auto; }
+    main { height: auto; min-height: calc(100vh - 46px); }
+  }
+
+  /* --- 手动教学 --- */
+  .teach-panel {
+    margin-top: 10px; padding: 10px 12px;
+    border: 1px dashed #b9a88a; border-radius: 10px; background: #faf6ee;
+  }
+  .teach-panel.active { border-style: solid; border-color: #8f7a3d; background: #f4ecd8; }
+  .teach-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .teach-head h3 { margin: 0; font-size: 15px; }
+  .teach-options { margin: 8px 0; font-size: 13px; color: #5b5347; display: none; }
+  .teach-panel.active .teach-options { display: block; }
+  .teach-options select { margin-left: 6px; }
+  .dpad {
+    display: none; grid-template-columns: repeat(3, 46px); grid-gap: 6px;
+    justify-content: center; margin: 8px 0 4px;
+  }
+  .teach-panel.active .dpad { display: grid; }
+  .dbtn {
+    height: 42px; font-size: 18px; border: 1px solid #9a8c70; border-radius: 8px;
+    background: #fff; cursor: pointer; color: #4a4438;
+  }
+  .dbtn:hover:not(:disabled) { background: #efe6d2; }
+  .dbtn:disabled { opacity: 0.4; cursor: default; }
+  .dbtn-up { grid-column: 2; grid-row: 1; }
+  .dbtn-left { grid-column: 1; grid-row: 2; }
+  .dbtn-right { grid-column: 3; grid-row: 2; }
+  .dbtn-down { grid-column: 2; grid-row: 3; }
+  .teach-stats { font-size: 12.5px; color: #5b5347; min-height: 34px; line-height: 1.5; }
+  .teach-stats b.good { color: #2f7a3d; }
+  .teach-stats b.bad { color: #b0542f; }
+</style>
+</head>
+<body>
+<header>
+  <h1>果蝇玩 2048 · 单屏大脑互动台</h1>
+  <a href="/console" id="consoleLink">训练控制台</a>
+  <p>16 格棋盘 → 感觉放电 → 166 神经元子图 → 4 方向读出决策（绿=奖励，红=惩罚）</p>
+</header>
+<main>
+  <section class="card board-card">
+    <div class="panel-heading">
+      <h2>2048 棋盘</h2>
+      <span class="model-tag" id="weightsTag">权重检测中…</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><b>得分</b><span id="scoreStat">0</span></div>
+      <div class="stat"><b>最大格</b><span id="maxTileStat">0</span></div>
+      <div class="stat"><b>步数</b><span id="movesStat">0</span></div>
+      <div class="stat"><b>净奖励</b><span id="netRewardStat">0</span></div>
+    </div>
+    <div class="canvas-holder">
+      <canvas id="boardCanvas" width="480" height="480"></canvas>
+      <div class="reward-badge" id="rewardBadge"></div>
+    </div>
+  </section>
+
+  <section class="card heat-card">
+    <div class="panel-heading">
+      <h2>16 格感觉放电率热图</h2>
+    </div>
+    <div class="canvas-holder">
+      <canvas id="heatCanvas" width="480" height="480"></canvas>
+    </div>
+    <div class="heat-legend">格值越大放电越快（8Hz 基准 · log2 缩放 · 封顶 120Hz），空格 = 0 Hz</div>
+  </section>
+
+  <section class="right-col">
+    <div class="card">
+      <div class="panel-heading">
+        <h2>实验控制</h2>
+        <span class="model-tag" id="learningTag">日志读取中…</span>
+      </div>
+      <div class="weight-row">
+        <label for="weightSelect">权重</label>
+        <select id="weightSelect" title="选择要使用的权重"></select>
+        <button id="weightSaveButton" title="把当前权重复制成一份新权重">另存为…</button>
+        <button id="weightRandomButton" title="新建一份从零开始的随机权重">新建随机…</button>
+        <button id="weightRenameButton" title="给当前权重改名">重命名…</button>
+        <button id="weightDeleteButton" title="删除当前权重">删除</button>
+      </div>
+      <div class="controls-row">
+        <button id="stepButton">单步决策</button>
+        <button id="runButton">连续跑</button>
+        <button id="pauseButton" disabled>暂停</button>
+        <button id="resetButton">重置</button>
+      </div>
+      <div id="status" class="status">连接中…</div>
+      <div class="teach-panel" id="teachPanel">
+        <div class="teach-head">
+          <h3>手动教学（你来当老师）</h3>
+          <button id="teachToggleButton">开始手动教学</button>
+        </div>
+        <div class="teach-options">
+          <label for="teachAugSelect">D4 对称增强
+            <select id="teachAugSelect" title="同一逻辑局面按 K 个旋转/翻转各教一次（学习率自动 ÷K）">
+              <option value="1">×1 关闭</option>
+              <option value="2">×2 中心对称</option>
+              <option value="4" selected>×4 旋转</option>
+              <option value="8">×8 旋转+翻转</option>
+            </select>
+          </label>
+        </div>
+        <div class="dpad" id="dpad">
+          <button class="dbtn dbtn-up" data-a="0" title="上（↑）">↑</button>
+          <button class="dbtn dbtn-left" data-a="3" title="左（←）">←</button>
+          <button class="dbtn dbtn-right" data-a="1" title="右（→）">→</button>
+          <button class="dbtn dbtn-down" data-a="2" title="下（↓）">↓</button>
+        </div>
+        <div class="teach-stats" id="teachStats">点「开始手动教学」后，用键盘方向键或右侧按钮走你自己的棋——脑会把你的每一步当示范模仿。</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>4 方向读出概率</h2>
+      <div class="prob-bars" id="probBars">
+        <div class="prob-row" data-i="0"><b>↑ 上</b><div class="prob-track"><i class="prob-fill" id="probFill0"></i></div><b id="probValue0">25.0%</b></div>
+        <div class="prob-row" data-i="1"><b>→ 右</b><div class="prob-track"><i class="prob-fill" id="probFill1"></i></div><b id="probValue1">25.0%</b></div>
+        <div class="prob-row" data-i="2"><b>↓ 下</b><div class="prob-track"><i class="prob-fill" id="probFill2"></i></div><b id="probValue2">25.0%</b></div>
+        <div class="prob-row" data-i="3"><b>← 左</b><div class="prob-track"><i class="prob-fill" id="probFill3"></i></div><b id="probValue3">25.0%</b></div>
+      </div>
+      <div class="prob-note" id="logitsNote">logits: —</div>
+    </div>
+  </section>
+
+  <section class="card learning-card">
+    <div class="panel-heading">
+      <h2>学习曲线（训练日志）</h2>
+    </div>
+    <div class="canvas-holder">
+      <canvas id="learningCanvas" width="1000" height="200"></canvas>
+    </div>
+    <div class="brain-legend"><span id="learningNote">暂无训练日志</span></div>
+  </section>
+</main>
+<script>
+(() => {
+  const boardCanvas = document.getElementById('boardCanvas');
+  const boardCtx = boardCanvas.getContext('2d');
+  const heatCanvas = document.getElementById('heatCanvas');
+  const heatCtx = heatCanvas.getContext('2d');
+  const learningCanvas = document.getElementById('learningCanvas');
+  const learningCtx = learningCanvas.getContext('2d');
+  const stepButton = document.getElementById('stepButton');
+  const runButton = document.getElementById('runButton');
+  const pauseButton = document.getElementById('pauseButton');
+  const resetButton = document.getElementById('resetButton');
+  const statusEl = document.getElementById('status');
+  const weightsTag = document.getElementById('weightsTag');
+  const learningTag = document.getElementById('learningTag');
+  const learningNote = document.getElementById('learningNote');
+  const rewardBadge = document.getElementById('rewardBadge');
+  const weightSelect = document.getElementById('weightSelect');
+  const weightSaveButton = document.getElementById('weightSaveButton');
+  const weightRandomButton = document.getElementById('weightRandomButton');
+  const weightRenameButton = document.getElementById('weightRenameButton');
+  const weightDeleteButton = document.getElementById('weightDeleteButton');
+  const teachPanel = document.getElementById('teachPanel');
+  const teachToggleButton = document.getElementById('teachToggleButton');
+  const teachAugSelect = document.getElementById('teachAugSelect');
+  const teachStats = document.getElementById('teachStats');
+  const dpadButtons = Array.from(document.querySelectorAll('.dbtn'));
+
+  const TILE_COLORS = {
+    2: '#eee4da', 4: '#ede0c8', 8: '#f2b179', 16: '#f59563', 32: '#f67c5f',
+    64: '#f65e3b', 128: '#edcf72', 256: '#edcc61', 512: '#edc850',
+    1024: '#edc53f', 2048: '#edc22e'
+  };
+  const ACTION_ARROWS = ['↑', '→', '↓', '←'];
+  const ACTION_LABELS = ['↑ 上', '→ 右', '↓ 下', '← 左'];
+  const MAX_RATE_HZ = 120;
+
+  let state = null;
+  let learningCurve = null;
+  let running = false;
+  let requestBusy = false;
+  let spawnAnim = { start: 0, raf: 0, tiles: [] };
+  let weightData = { active: null, profiles: [] };
+  let opsRunning = false;
+  let weightBusy = false;
+  let teachActive = false;
+  let teachBusy = false;
+
+  function roundRect(c, x, y, w, h, r) {
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+
+  function tileFill(v) { return TILE_COLORS[v] || '#3c3a32'; }
+  function tileText(v) { return v <= 4 ? '#776e65' : '#f9f6f2'; }
+
+  function resizeCanvases() {
+    const ratio = window.devicePixelRatio || 1;
+    [[boardCanvas, boardCtx], [heatCanvas, heatCtx]].forEach(([canvas, ctx]) => {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(1, Math.round(rect.width * ratio));
+      canvas.height = Math.max(1, Math.round(rect.height * ratio));
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    });
+    [[learningCanvas, learningCtx]].forEach(([canvas, ctx]) => {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.max(1, Math.round(rect.width * ratio));
+      canvas.height = Math.max(1, Math.round(rect.height * ratio));
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    });
+    drawBoard(performance.now());
+    drawHeat();
+    drawLearning();
+  }
+
+  function drawBoard(now) {
+    const rect = boardCanvas.getBoundingClientRect();
+    const width = rect.width || 480;
+    const height = rect.height || width;
+    boardCtx.clearRect(0, 0, width, height);
+    boardCtx.fillStyle = '#bbada0';
+    boardCtx.fillRect(0, 0, width, height);
+    const pad = width * 0.035;
+    const gap = width * 0.028;
+    const cell = (width - pad * 2 - gap * 3) / 4;
+    const board = state ? state.board : new Array(16).fill(0);
+    const newSet = new Set(state && Array.isArray(state.new_tiles) ? state.new_tiles : []);
+    let scaleText = 1;
+    for (let i = 0; i < 16; i++) {
+      const row = Math.floor(i / 4);
+      const col = i % 4;
+      const cx = pad + col * (cell + gap) + cell / 2;
+      const cy = pad + row * (cell + gap) + cell / 2;
+      const v = Number(board[i]) || 0;
+      let size = cell;
+      if (newSet.has(i) && spawnAnim.start > 0) {
+        const t = Math.min(1, (now - spawnAnim.start) / 240);
+        const ease = 1 - Math.pow(1 - t, 3);
+        size = cell * (0.3 + 0.7 * ease);
+        scaleText = size / cell;
+      }
+      if (v > 0) {
+        boardCtx.fillStyle = tileFill(v);
+        roundRect(boardCtx, cx - size / 2, cy - size / 2, size, size, size * 0.12);
+        boardCtx.fill();
+        if (newSet.has(i)) {
+          boardCtx.strokeStyle = 'rgba(16, 124, 16, 0.9)';
+          boardCtx.lineWidth = Math.max(2, size * 0.06);
+          roundRect(boardCtx, cx - size / 2, cy - size / 2, size, size, size * 0.12);
+          boardCtx.stroke();
+        }
+        const digits = String(v).length;
+        const fontScale = digits <= 2 ? 0.42 : digits === 3 ? 0.34 : 0.27;
+        boardCtx.fillStyle = tileText(v);
+        boardCtx.font = `800 ${Math.round(cell * fontScale * scaleText)}px "Microsoft YaHei", system-ui, sans-serif`;
+        boardCtx.textAlign = 'center';
+        boardCtx.textBaseline = 'middle';
+        boardCtx.fillText(String(v), cx, cy + cell * 0.02);
+      } else {
+        boardCtx.fillStyle = 'rgba(238, 228, 218, 0.35)';
+        roundRect(boardCtx, cx - cell / 2, cy - cell / 2, cell, cell, cell * 0.12);
+        boardCtx.fill();
+      }
+    }
+    if (spawnAnim.start > 0 && now - spawnAnim.start < 240) {
+      if (spawnAnim.raf) cancelAnimationFrame(spawnAnim.raf);
+      spawnAnim.raf = requestAnimationFrame(drawBoard);
+    } else {
+      spawnAnim.raf = 0;
+    }
+  }
+
+  function drawHeat() {
+    const rect = heatCanvas.getBoundingClientRect();
+    const width = rect.width || 480;
+    const height = rect.height || width;
+    heatCtx.clearRect(0, 0, width, height);
+    heatCtx.fillStyle = '#f5f5f5';
+    heatCtx.fillRect(0, 0, width, height);
+    const pad = width * 0.04;
+    const gap = width * 0.03;
+    const cell = (width - pad * 2 - gap * 3) / 4;
+    const rates = state ? state.rates : new Array(16).fill(0);
+    const board = state ? state.board : new Array(16).fill(0);
+    for (let i = 0; i < 16; i++) {
+      const row = Math.floor(i / 4);
+      const col = i % 4;
+      const x = pad + col * (cell + gap);
+      const y = pad + row * (cell + gap);
+      const r = Number(rates[i]) || 0;
+      const n = Math.min(1, r / MAX_RATE_HZ);
+      heatCtx.fillStyle = n <= 0 ? '#ebebeb' : `rgba(0, 120, 215, ${0.12 + 0.85 * n})`;
+      roundRect(heatCtx, x, y, cell, cell, cell * 0.12);
+      heatCtx.fill();
+      const cx = x + cell / 2;
+      const cy = y + cell / 2;
+      const v = Number(board[i]) || 0;
+      if (v > 0) {
+        heatCtx.fillStyle = '#1f1f1f';
+        heatCtx.font = `800 ${Math.round(cell * 0.3)}px "Microsoft YaHei", system-ui, sans-serif`;
+        heatCtx.textAlign = 'center';
+        heatCtx.textBaseline = 'middle';
+        heatCtx.fillText(String(v), cx, cy - cell * 0.16);
+      }
+      heatCtx.fillStyle = n > 0.55 ? '#ffffff' : '#6e6e6e';
+      heatCtx.font = `700 ${Math.round(cell * 0.17)}px system-ui, sans-serif`;
+      heatCtx.textAlign = 'center';
+      heatCtx.textBaseline = 'middle';
+      heatCtx.fillText(`${r.toFixed(0)} Hz`, cx, cy + cell * 0.22);
+    }
+  }
+
+  function rolling(values, windowSize) {
+    const result = [];
+    const acc = [];
+    values.forEach(v => {
+      acc.push(v);
+      if (acc.length > windowSize) acc.shift();
+      result.push(acc.reduce((a, b) => a + b, 0) / acc.length);
+    });
+    return result;
+  }
+
+  function drawLearning() {
+    const rect = learningCanvas.getBoundingClientRect();
+    const width = rect.width || 1000;
+    const height = rect.height || 200;
+    learningCtx.clearRect(0, 0, width, height);
+    learningCtx.fillStyle = '#ffffff';
+    learningCtx.fillRect(0, 0, width, height);
+    if (!learningCurve || !learningCurve.exists || !learningCurve.episodes.length) {
+      learningCtx.fillStyle = '#6e6e6e';
+      learningCtx.font = '600 12px system-ui';
+      learningCtx.textAlign = 'left';
+      learningCtx.fillText('暂无训练日志。运行 fly2048_core.py train 后刷新页面即可看到学习曲线。', 36, 28);
+      return;
+    }
+    const n = learningCurve.episodes.length;
+    const scores = learningCurve.scores;
+    const tiles = learningCurve.tiles;
+    const scoreRoll = rolling(scores, 25);
+    const tileRoll = rolling(tiles, 25);
+    const left = 42;
+    const right = width - 44;
+    const top = 16;
+    const bottom = height - 26;
+    const plotW = right - left;
+    const plotH = bottom - top;
+    const yMaxScore = Math.max(1, ...scores);
+    const yMaxTile = Math.max(1, ...tiles);
+
+    learningCtx.strokeStyle = '#ededed';
+    learningCtx.fillStyle = '#767676';
+    learningCtx.font = '600 10px system-ui';
+    learningCtx.lineWidth = 1;
+    for (let g = 0; g <= 4; g++) {
+      const y = top + (g / 4) * plotH;
+      learningCtx.beginPath();
+      learningCtx.moveTo(left, y);
+      learningCtx.lineTo(right, y);
+      learningCtx.stroke();
+      learningCtx.textAlign = 'right';
+      learningCtx.fillText(String(Math.round(yMaxScore * (1 - g / 4))), left - 5, y + 3);
+      learningCtx.textAlign = 'left';
+      learningCtx.fillText(String(Math.round(yMaxTile * (1 - g / 4))), right + 5, y + 3);
+    }
+
+    const drawLine = (values, color, alpha, lineWidth, yMax) => {
+      learningCtx.strokeStyle = color;
+      learningCtx.globalAlpha = alpha;
+      learningCtx.lineWidth = lineWidth;
+      learningCtx.lineJoin = 'round';
+      learningCtx.beginPath();
+      values.forEach((v, i) => {
+        const x = left + (i / Math.max(1, n - 1)) * plotW;
+        const y = top + plotH - (v / yMax) * plotH;
+        if (i === 0) learningCtx.moveTo(x, y);
+        else learningCtx.lineTo(x, y);
+      });
+      learningCtx.stroke();
+      learningCtx.globalAlpha = 1;
+    };
+
+    drawLine(scores, '#0078d7', 0.25, 1, yMaxScore);
+    drawLine(scoreRoll, '#107c10', 1, 2, yMaxScore);
+    drawLine(tiles, '#0e9ead', 0.25, 1, yMaxTile);
+    drawLine(tileRoll, '#0b7e8a', 1, 2, yMaxTile);
+
+    learningCtx.fillStyle = '#107c10';
+    learningCtx.font = '800 10px system-ui';
+    learningCtx.textAlign = 'left';
+    learningCtx.fillText('score（滑窗 25）', left, top - 4);
+    learningCtx.fillStyle = '#0b7e8a';
+    learningCtx.fillText('max tile（滑窗 25）', left + 118, top - 4);
+    learningCtx.fillStyle = '#6e6e6e';
+    learningCtx.font = '600 10px system-ui';
+    learningCtx.textAlign = 'center';
+    for (let g = 0; g <= 4; g++) {
+      const x = left + (g / 4) * plotW;
+      learningCtx.fillText(String(Math.round(1 + (g / 4) * (n - 1))), x, height - 6);
+    }
+    learningCtx.fillText('episode（左轴 score，右轴 max tile）', (left + right) / 2, top - 5);
+  }
+
+  function updateButtons() {
+    stepButton.disabled = running || requestBusy || teachActive;
+    runButton.disabled = running || requestBusy || teachActive;
+    pauseButton.disabled = !running || requestBusy;
+    resetButton.disabled = requestBusy || teachBusy;
+    teachToggleButton.disabled = teachBusy || requestBusy;
+    teachToggleButton.textContent = teachActive ? '结束并保存' : '开始手动教学';
+    teachPanel.classList.toggle('active', teachActive);
+    teachAugSelect.disabled = teachActive || teachBusy;
+    dpadButtons.forEach(btn => {
+      btn.disabled = !teachActive || teachBusy || !state || state.game_over;
+    });
+  }
+
+  function showRewardBadge(payload) {
+    rewardBadge.classList.remove('pos', 'neg');
+    rewardBadge.textContent = '';
+    if (payload.action < 0) return;
+    if (payload.moved && payload.gain > 0) {
+      rewardBadge.textContent = `+${payload.reward.toFixed(1)} 奖励`;
+      void rewardBadge.offsetWidth;
+      rewardBadge.classList.add('pos');
+    } else if (!payload.moved) {
+      rewardBadge.textContent = '惩罚 -1.0';
+      void rewardBadge.offsetWidth;
+      rewardBadge.classList.add('neg');
+    }
+  }
+
+  function applyState(payload) {
+    state = payload;
+    document.getElementById('scoreStat').textContent = String(payload.score);
+    document.getElementById('maxTileStat').textContent = String(payload.max_tile);
+    document.getElementById('movesStat').textContent = String(payload.moves);
+    document.getElementById('netRewardStat').textContent = payload.net_reward.toFixed(1);
+
+    const wname = payload.weights_name || '未命名权重';
+    weightsTag.textContent = payload.weights_loaded
+      ? `权重：${wname}`
+      : `${wname}（权重未生成）`;
+    weightsTag.classList.toggle('warn', !payload.weights_loaded);
+
+    for (let i = 0; i < 4; i++) {
+      document.getElementById(`probValue${i}`).textContent = `${(payload.probs[i] * 100).toFixed(1)}%`;
+      document.getElementById(`probFill${i}`).style.width = `${(payload.probs[i] * 100).toFixed(1)}%`;
+      document.querySelector(`.prob-row[data-i="${i}"]`).classList.toggle('chosen', i === payload.action);
+    }
+    document.getElementById('logitsNote').textContent = `logits: ${payload.logits.map(v => v.toFixed(2)).join('  ')}`;
+
+    if (payload.game_over) {
+      statusEl.innerHTML = `游戏结束：得分 ${payload.score}，最大格 ${payload.max_tile}，净奖励 <b>${payload.net_reward.toFixed(1)}</b>。点击「重置」再来一局。`;
+    } else if (payload.action >= 0) {
+      statusEl.innerHTML = payload.moved
+        ? `第 ${payload.moves} 步：选了「${ACTION_LABELS[payload.action]}」，合并 +${payload.gain}，<span class="pos">奖励 +${payload.reward.toFixed(1)}</span>`
+        : `第 ${payload.moves + 1} 步（尝试）：选了「${ACTION_LABELS[payload.action]}」，无法滑动，<span class="neg">惩罚 -1.0</span>`;
+    }
+
+    // 手动教学状态：与服务器对齐 active，并覆盖状态条文案
+    teachActive = !!(payload.teach && payload.teach.active);
+    if (teachActive) {
+      renderTeach(payload.teach, payload);
+    } else {
+      teachStats.textContent = '点「开始手动教学」后，用键盘方向键或右侧按钮走你自己的棋——脑会把你的每一步当示范模仿。';
+    }
+    updateButtons();
+
+    showRewardBadge(payload);
+
+    if (Array.isArray(payload.new_tiles) && payload.new_tiles.length) {
+      spawnAnim.start = performance.now();
+      spawnAnim.tiles = payload.new_tiles.slice();
+      if (spawnAnim.raf) cancelAnimationFrame(spawnAnim.raf);
+      spawnAnim.raf = requestAnimationFrame(drawBoard);
+    } else {
+      drawBoard(performance.now());
+    }
+    drawHeat();
+  }
+
+  async function fetchJson(url, options = {}) {
+    const response = await fetch(url, options);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    return payload;
+  }
+
+  async function runOneStep() {
+    if (requestBusy) return;
+    requestBusy = true;
+    updateButtons();
+    try {
+      const payload = await fetchJson('/step', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      });
+      applyState(payload);
+    } catch (error) {
+      statusEl.textContent = `出错：${error.message}`;
+      if (running) {
+        running = false;
+      }
+    } finally {
+      requestBusy = false;
+      updateButtons();
+    }
+  }
+
+  async function startLoop() {
+    if (running) return;
+    running = true;
+    updateButtons();
+    while (running) {
+      await runOneStep();
+      if (!running) break;
+      if (state && state.game_over) {
+        pauseLoop();
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 140));
+    }
+  }
+
+  function pauseLoop() {
+    running = false;
+    updateButtons();
+  }
+
+  async function resetLab() {
+    pauseLoop();
+    requestBusy = true;
+    updateButtons();
+    try {
+      const payload = await fetchJson('/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      });
+      applyState(payload);
+      statusEl.textContent = teachActive
+        ? `新一局教学开始（累计已教 ${payload.teach ? payload.teach.steps_total : 0} 步）。用方向键走棋。`
+        : '已重置，新的一局。点击「单步决策」或「连续跑」。';
+    } catch (error) {
+      statusEl.textContent = `重置失败：${error.message}`;
+    } finally {
+      requestBusy = false;
+      updateButtons();
+    }
+  }
+
+  // --- 手动教学（人当老师） ---
+  function renderTeach(t, payload) {
+    const lastLine = t.human_action >= 0
+      ? (t.last_agreed
+          ? `上一步你选「${ACTION_LABELS[t.human_action]}」，学生也选它 <b class="good">✓ 一致</b>`
+          : `上一步你选「${ACTION_LABELS[t.human_action]}」，学生本选「${ACTION_LABELS[t.student_action]}」 <b class="bad">✗ 已被你纠正</b>`)
+      : '还没有教学步，走第一步试试。';
+    teachStats.innerHTML =
+      `已教 <b>${t.steps_total}</b> 步 · 师生一致率 <b>${(t.agreement * 100).toFixed(1)}%</b>` +
+      ` · 完成 ${t.games} 局 · 增强 ×${t.aug_k}（累计 ${t.aug_updates_total} 次梯度，lr=${t.lr}）<br>${lastLine}`;
+    if (!payload.game_over && t.human_action >= 0) {
+      statusEl.innerHTML = t.last_agreed
+        ? `第 ${payload.moves} 步教学：你选「${ACTION_LABELS[t.human_action]}」，学生想法一致 <span class="pos">✓</span>（合并 +${payload.gain}）`
+        : `第 ${payload.moves} 步教学：你选「${ACTION_LABELS[t.human_action]}」，纠正了学生的「${ACTION_LABELS[t.student_action]}」 <span class="neg">✗</span>`;
+    }
+    if (payload.game_over) {
+      statusEl.innerHTML = `本局教学结束：得分 <b>${payload.score}</b>，最大格 <b>${payload.max_tile}</b>，共教 ${t.game_steps} 步。点「重置」开始下一局。`;
+    }
+  }
+
+  async function teachToggle() {
+    if (teachBusy || requestBusy) return;
+    teachBusy = true;
+    updateButtons();
+    try {
+      if (teachActive) {
+        const payload = await fetchJson('/teach_manual/stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
+        applyState(payload);
+        statusEl.textContent = '手动教学已结束，权重已保存到当前权重 profile。';
+      } else {
+        pauseLoop();
+        const augK = parseInt(teachAugSelect.value, 10);
+        const payload = await fetchJson('/teach_manual/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ aug_k: augK })
+        });
+        applyState(payload);
+        statusEl.textContent = `手动教学已开始（D4 对称增强 ×${augK}）：用方向键走你自己的棋，脑会模仿你的每一步。`;
+      }
+    } catch (error) {
+      statusEl.textContent = `手动教学操作失败：${error.message}`;
+    } finally {
+      teachBusy = false;
+      updateButtons();
+    }
+  }
+
+  async function teachHumanStep(action) {
+    if (!teachActive || teachBusy || !state || state.game_over) return;
+    teachBusy = true;
+    updateButtons();
+    try {
+      const payload = await fetchJson('/teach_manual/step', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      applyState(payload);
+    } catch (error) {
+      statusEl.textContent = `教学步失败：${error.message}`;
+    } finally {
+      teachBusy = false;
+      updateButtons();
+    }
+  }
+
+  // --- 命名权重管理 ---
+  function currentProfile() {
+    return weightData.profiles.find(p => p.id === weightData.active) || null;
+  }
+
+  function renderWeights() {
+    const signature = weightData.profiles.map(p => `${p.id}=${p.name}=${p.episodes}`).join('|');
+    if (weightSelect.dataset.signature !== signature) {
+      weightSelect.textContent = '';
+      weightData.profiles.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.built_in ? p.name : `${p.name}（${p.episodes} 局）`;
+        weightSelect.appendChild(opt);
+      });
+      weightSelect.dataset.signature = signature;
+    }
+    if (weightData.active) weightSelect.value = weightData.active;
+    const locked = opsRunning || weightBusy;
+    weightSelect.disabled = locked;
+    const cp = currentProfile();
+    weightSaveButton.disabled = locked;
+    weightRandomButton.disabled = locked;
+    weightRenameButton.disabled = locked || !cp || cp.built_in;
+    weightDeleteButton.disabled = locked || !cp || cp.built_in;
+  }
+
+  async function loadWeights() {
+    weightData = await fetchJson('/weights');
+    renderWeights();
+  }
+
+  async function refreshOpsRunning() {
+    try {
+      const st = await fetchJson('/train/status');
+      opsRunning = !!(st.running || (st.teach && st.teach.running) || (st.auto && st.auto.running));
+    } catch (error) {
+      opsRunning = false;
+    }
+    renderWeights();
+  }
+
+  async function selectWeight(id) {
+    weightBusy = true;
+    renderWeights();
+    try {
+      const res = await fetchJson('/weights/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      weightData = { active: res.active, profiles: res.profiles };
+      applyState(res.state);
+      await loadLearning();
+    } catch (error) {
+      statusEl.textContent = `切换权重失败：${error.message}`;
+      await loadWeights();
+    } finally {
+      weightBusy = false;
+      renderWeights();
+    }
+  }
+
+  async function createWeight(mode) {
+    const cur = currentProfile();
+    const suggested = mode === 'copy'
+      ? `${cur ? cur.name : ''} 副本`.trim()
+      : '新随机权重';
+    const input = window.prompt(
+      mode === 'copy' ? '为另存的新权重命名：' : '为新随机权重命名：',
+      suggested,
+    );
+    if (input === null) return;
+    const name = input.trim();
+    if (!name) return;
+    if (mode === 'random' &&
+        !window.confirm('随机权重从零开始，不会保留当前水平，确定新建？')) return;
+    weightBusy = true;
+    renderWeights();
+    try {
+      const res = await fetchJson('/weights/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, mode }),
+      });
+      weightData = { active: res.active, profiles: res.profiles };
+      applyState(res.state);
+      await loadLearning();
+      statusEl.textContent = mode === 'copy'
+        ? `已另存为「${res.profile.name}」并切换，之后的练习互不影响。`
+        : `已新建随机权重「${res.profile.name}」并切换，先训练几局再玩吧。`;
+    } catch (error) {
+      window.alert(`新建权重失败：${error.message}`);
+    } finally {
+      weightBusy = false;
+      renderWeights();
+    }
+  }
+
+  async function renameActive() {
+    const cur = currentProfile();
+    if (!cur) return;
+    const input = window.prompt('新名称：', cur.name);
+    if (input === null) return;
+    const name = input.trim();
+    if (!name) return;
+    weightBusy = true;
+    renderWeights();
+    try {
+      const res = await fetchJson('/weights/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: cur.id, name }),
+      });
+      weightData = { active: res.active, profiles: res.profiles };
+    } catch (error) {
+      window.alert(`重命名失败：${error.message}`);
+    } finally {
+      weightBusy = false;
+      renderWeights();
+    }
+  }
+
+  async function deleteActive() {
+    const cur = currentProfile();
+    if (!cur) return;
+    if (!window.confirm(`确定删除权重「${cur.name}」？其权重与练习/教学记录都会被删除，无法恢复。`)) return;
+    weightBusy = true;
+    renderWeights();
+    try {
+      // 后端不允许删除使用中的权重：若删的正是当前权重，先切回默认
+      if (cur.id === weightData.active) {
+        const sel = await fetchJson('/weights/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: 'default' }),
+        });
+        weightData = { active: sel.active, profiles: sel.profiles };
+        applyState(sel.state);
+      }
+      const res = await fetchJson('/weights/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: cur.id }),
+      });
+      weightData = { active: res.active, profiles: res.profiles };
+      statusEl.textContent = `已删除权重「${cur.name}」。`;
+    } catch (error) {
+      window.alert(`删除失败：${error.message}`);
+    } finally {
+      weightBusy = false;
+      renderWeights();
+    }
+  }
+
+  weightSelect.addEventListener('change', () => {
+    if (weightSelect.value && weightSelect.value !== weightData.active) {
+      void selectWeight(weightSelect.value);
+    }
+  });
+  weightSaveButton.addEventListener('click', () => void createWeight('copy'));
+  weightRandomButton.addEventListener('click', () => void createWeight('random'));
+  weightRenameButton.addEventListener('click', () => void renameActive());
+  weightDeleteButton.addEventListener('click', () => void deleteActive());
+
+  stepButton.addEventListener('click', () => void runOneStep());
+  runButton.addEventListener('click', () => void startLoop());
+  pauseButton.addEventListener('click', () => pauseLoop());
+  resetButton.addEventListener('click', () => void resetLab());
+  teachToggleButton.addEventListener('click', () => void teachToggle());
+  dpadButtons.forEach(btn => {
+    btn.addEventListener('click', () => void teachHumanStep(parseInt(btn.dataset.a, 10)));
+  });
+  window.addEventListener('keydown', event => {
+    if (!teachActive) return;
+    const tag = (event.target && event.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    const keyMap = { ArrowUp: 0, ArrowRight: 1, ArrowDown: 2, ArrowLeft: 3 };
+    if (Object.prototype.hasOwnProperty.call(keyMap, event.key)) {
+      event.preventDefault();
+      void teachHumanStep(keyMap[event.key]);
+    }
+  });
+  window.addEventListener('resize', resizeCanvases);
+
+  async function loadLearning() {
+    try {
+      learningCurve = await fetchJson('/learning');
+      if (learningCurve.exists) {
+        learningTag.textContent = `日志 ${learningCurve.episodes.length} 局`;
+        learningTag.classList.remove('warn');
+        learningNote.textContent = '绿=得分 青=最大格（滑窗 25 平均）';
+      } else {
+        learningTag.textContent = '暂无训练日志';
+        learningTag.classList.add('warn');
+        learningNote.textContent = '暂无训练日志（该权重下还没有训练记录）';
+      }
+    } catch (error) {
+      learningTag.textContent = '日志读取失败';
+    }
+    drawLearning();
+  }
+
+  async function boot() {
+    try {
+      const payload = await fetchJson('/state');
+      applyState(payload);
+      statusEl.textContent = `已连接。果蝇大脑就绪（${payload.n_neurons} 神经元）。点击「单步决策」或「连续跑」。`;
+    } catch (error) {
+      statusEl.textContent = `连接失败：${error.message}`;
+    }
+    await loadLearning();
+    try {
+      await loadWeights();
+      await refreshOpsRunning();
+    } catch (error) {
+      /* 权重列表加载失败不阻塞互动 */
+    }
+    resizeCanvases();
+    // 定期同步：其他页签可能新建/选择权重，或从控制台启动了训练
+    setInterval(() => {
+      if (weightBusy || requestBusy) return;
+      void loadWeights().then(refreshOpsRunning).catch(() => {});
+    }, 3000);
+  }
+
+  void boot();
+})();
+</script>
+</body>
+</html>

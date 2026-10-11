@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+
+# 内部开发文档（早期脑-身闭环阶段的 PRD/计划，不作为本项目内容公开）
+docs/
+
+# 运行产物：整体忽略，仅随仓库分发默认连接组子图（运行必需、CC-BY 数据）
+outputs/*
+!outputs/subgraphs/
+!outputs/subgraphs/**
+
+# 本地日志与临时文件
+*.log
+.DS_Store
+Thumbs.db

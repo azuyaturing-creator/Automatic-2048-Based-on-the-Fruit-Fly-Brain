@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>训练控制台 · 果蝇 2048</title>
+<style>
+  :root {
+    --bg: #f3f3f3; --panel: #ffffff; --panel2: #f5f5f5;
+    --text: #1f1f1f; --muted: #6e6e6e;
+    --accent: #0078d7; --accent-hover: #1975c2; --accent-soft: #deecf9;
+    --green: #107c10; --green-soft: #dff6dd;
+    --red: #c42b1c; --red-soft: #fde7e9;
+    --amber: #9a6c00; --amber-soft: #fff2cc;
+    --teal: #0e9ead;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-size: 14px; padding: 10px 14px;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  header {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+    margin-bottom: 10px; flex-wrap: wrap; min-height: 26px;
+  }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header a { color: var(--accent); text-decoration: none; font-size: 13px; }
+  #stateBadge {
+    font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 3px;
+    background: var(--panel2); color: var(--muted);
+  }
+  #stateBadge.running { color: var(--green); background: var(--green-soft); }
+  #stateBadge.finished { color: var(--amber); background: var(--amber-soft); }
+  .grid {
+    flex: 1 1 auto; min-height: 0;
+    display: grid; gap: 10px;
+    grid-template-columns: 280px minmax(0, 1.15fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .col {
+    display: flex; flex-direction: column; gap: 10px;
+    min-width: 0; min-height: 0;
+  }
+  /* 左列：控制 + 最新一局 + 当前操作，整体纵向滚动 */
+  .col-left { overflow-y: auto; }
+  .col-left .card { flex: 0 0 auto; }
+  /* 中列：状态卡按内容收高，学习曲线占满剩余空间 */
+  #status { flex: 0 0 auto; }
+  #curve { flex: 1 1 auto; min-height: 220px; }
+  #curveCanvas { width: 100%; height: 100%; min-height: 0; display: block; }
+  /* 右列：全部局数 3 / 日志 2 */
+  .col-right #all { flex: 3 1 0; min-height: 0; }
+  .col-right #logcard { flex: 2 1 0; min-height: 130px; }
+  .card {
+    background: var(--panel); border: none;
+    border-radius: 4px; padding: 10px 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.075);
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  }
+  .card h2 {
+    flex: 0 0 auto; font-size: 13px; font-weight: 600;
+    color: var(--muted); margin-bottom: 8px;
+  }
+  #weightSelect {
+    width: 100%; background: var(--panel2); color: var(--text);
+    border: none; border-radius: 3px; padding: 6px 8px; font-size: 13px;
+  }
+  #weightSelect:disabled { opacity: .7; }
+  .wbtnrow { display: flex; gap: 6px; margin-top: 5px; }
+  .wbtnrow button {
+    flex: 1 1 0; border: none; border-radius: 3px; padding: 5px 0;
+    font-size: 11.5px; font-weight: 600; cursor: pointer;
+    background: var(--panel2); color: var(--text);
+  }
+  .wbtnrow button:hover { background: #e6e6e6; }
+  .wbtnrow button:disabled { opacity: .45; cursor: not-allowed; }
+  #logcard { min-height: 0; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+  input[type=number] {
+    width: 100%; background: var(--panel2); color: var(--text);
+    border: none; border-radius: 3px; padding: 6px 8px; font-size: 13px;
+  }
+  input[type=number]:focus {
+    outline: none; background: #fff;
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  input[type=checkbox] { accent-color: var(--accent); }
+  .checkrow { display: flex; align-items: center; gap: 7px; margin: 8px 0; font-size: 12px; color: var(--text); }
+  .btn {
+    border: none; border-radius: 4px; padding: 7px 12px; font-size: 13px;
+    font-weight: 600; cursor: pointer; color: #fff; width: 100%; margin-top: 5px;
+    background: var(--accent);
+  }
+  .btn:hover { background: var(--accent-hover); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  #btnStart { background: var(--accent); }
+  #btnStop  { background: var(--panel2); color: var(--red); }
+  #btnStop:hover { background: var(--red-soft); }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 7px; line-height: 1.4; }
+  .statrow { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 12px; flex-wrap: wrap; }
+  .statrow b { font-size: 15px; }
+  .kv { color: var(--muted); }
+  .kv b { color: var(--text); }
+  #progressWrap {
+    flex: 0 0 auto; background: #e6e6e6; border: none;
+    border-radius: 2px; height: 8px; overflow: hidden; margin: 6px 0;
+  }
+  #progressBar { height: 100%; width: 0%; background: var(--accent); transition: width .6s; }
+  #latestGrid { display: flex; gap: 16px; flex-wrap: wrap; }
+  .metric { text-align: center; min-width: 50px; }
+  .metric .name { font-size: 11px; color: var(--muted); }
+  .metric .val { font-size: 15px; font-weight: 700; margin-top: 2px; }
+  /* 当前操作 */
+  #livePhase { font-size: 14px; font-weight: 600; color: var(--green); margin-bottom: 6px; }
+  #livePhase.idle { color: var(--muted); }
+  #livePhase.eval { color: var(--amber); }
+  #liveStats { display: flex; gap: 16px; }
+  /* 全部局数 */
+  #allWrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; border: none; border-radius: 3px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  thead th {
+    position: sticky; top: 0; background: var(--panel2); color: var(--muted);
+    font-weight: 600; text-align: right; padding: 5px 8px;
+  }
+  thead th:first-child, tbody td:first-child { text-align: center; }
+  tbody td { text-align: right; padding: 3.5px 8px; color: #2b2b2b; }
+  tbody tr.current-row td { color: #005499; background: var(--accent-soft); }
+  tbody tr:hover td { background: #f0f6fc; }
+  /* 训练日志 */
+  #logBox {
+    flex: 1 1 auto; min-height: 50px; overflow-y: auto;
+    background: #fafafa; border: none; border-radius: 3px;
+    padding: 8px 10px;
+    font-family: Consolas, "Courier New", monospace; font-size: 11.5px;
+    line-height: 1.5; color: #2b2b2b; white-space: pre-wrap;
+  }
+  #logBox:empty::after { content: "暂无日志"; color: var(--muted); }
+  /* 汇总统计 / 评估结果（状态卡内） */
+  .subhead {
+    font-size: 11px; color: var(--muted); font-weight: 600;
+    margin: 9px 0 4px;
+  }
+  #summaryGrid { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  #summaryGrid .metric { min-width: 44px; }
+  #summaryGrid .metric .val { font-size: 13.5px; }
+  #evalBox {
+    font-size: 11.5px; line-height: 1.55; color: #2b2b2b;
+    background: var(--panel2); border-radius: 3px; padding: 6px 9px;
+  }
+  #evalBox .tag { color: var(--amber); font-weight: 600; }
+  #evalBox .tag.rand { color: var(--accent); }
+  .modetitle {
+    font-size: 12px; font-weight: 600; color: var(--text);
+    margin: 10px 0 6px;
+  }
+  #btnTeach { background: #2d8de0; }
+  #btnTeach:hover { background: #1f7cc9; }
+  #btnTeachStop { background: var(--panel2); color: var(--red); }
+  #btnTeachStop:hover { background: var(--red-soft); }
+  .autorow { display: flex; gap: 6px; }
+  .autorow div { flex: 1 1 0; }
+  .autorow input { width: 100%; background: var(--panel2); color: var(--text);
+    border: none; border-radius: 3px; padding: 6px 4px; font-size: 13px; }
+  .autorow input:focus {
+    outline: none; background: #fff;
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  #btnAuto { background: #7a6fe3; }
+  #btnAuto:hover { background: #685cd1; }
+  #btnAutoStop { background: var(--panel2); color: var(--red); }
+  #btnAutoStop:hover { background: var(--red-soft); }
+  .logtab {
+    cursor: pointer; color: var(--muted); font-weight: 500;
+    margin-right: 12px; font-size: 13px;
+  }
+  .logtab.active { color: var(--accent); font-weight: 600; }
+  /* 全部局数：列变多，允许横向滚动 */
+  #allWrap { overflow: auto; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: #c1c1c1; border-radius: 5px;
+    border: 3px solid transparent; background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #a1a1a1;
+    border: 3px solid transparent; background-clip: content-box;
+  }
+  /* 超矮窗口退化为可滚动 */
+  @media (max-height: 620px) {
+    body { overflow: auto; }
+    .grid { flex: none; height: auto; min-height: 620px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>训练控制台</h1>
+  <a href="/">← 回互动台</a>
+  <span id="stateBadge">检测中…</span>
+</header>
+
+<div class="grid">
+  <div class="col col-left">
+  <div class="card" id="control">
+    <h2>控制</h2>
+    <div class="modetitle" style="margin-top:0">权重</div>
+    <label for="weightSelect">练习 / 教学 / 循环都作用于所选权重</label>
+    <select id="weightSelect"></select>
+    <div class="wbtnrow">
+      <button id="btnWeightCopy">另存为…</button>
+      <button id="btnWeightRandom">新建随机…</button>
+    </div>
+    <div class="wbtnrow">
+      <button id="btnWeightRename">重命名…</button>
+      <button id="btnWeightDelete">删除…</button>
+    </div>
+
+    <div class="modetitle">练习（自主强化）</div>
+    <label for="episodes">练习局数</label>
+    <input type="number" id="episodes" value="100" min="1" max="100000">
+    <div class="checkrow">
+      <input type="checkbox" id="resume" checked>
+      <label for="resume" style="margin:0">续训（基于已有权重，无权重时自动全新开始）</label>
+    </div>
+    <button class="btn" id="btnStart">开始练习</button>
+    <button class="btn" id="btnStop" disabled>停止练习</button>
+
+    <div class="modetitle">自动循环（教学 → 练习）</div>
+    <div class="autorow">
+      <div><label>轮数</label><input type="number" id="autoCycles" value="2" min="1" max="100"></div>
+      <div><label>教</label><input type="number" id="autoTeach" value="3" min="1" max="20"></div>
+      <div><label>练</label><input type="number" id="autoPractice" value="10" min="1" max="500"></div>
+    </div>
+    <div class="autorow">
+      <div><label>对称增强</label>
+        <select id="autoAugK">
+          <option value="1">×1 关闭</option>
+          <option value="2">×2 中心对称</option>
+          <option value="4" selected>×4 旋转</option>
+          <option value="8">×8 旋转+翻转</option>
+        </select>
+      </div>
+      <div><label>课程对齐</label>
+        <select id="autoSchedule">
+          <option value="1" selected>开（15→3局/深2→3）</option>
+          <option value="0">关（固定左侧"教"局数）</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn" id="btnAuto">开始自动循环</button>
+    <button class="btn" id="btnAutoStop" disabled>停止自动循环</button>
+
+    <div class="modetitle">教学（深度老师示范 + D4 对称增强）</div>
+    <label for="teachEpisodes">教学局数（×4 增强约 1.5 分钟/局）</label>
+    <input type="number" id="teachEpisodes" value="10" min="1" max="1000">
+    <div class="autorow">
+      <div><label>老师深度</label>
+        <select id="teachDepth">
+          <option value="2">2（快）</option>
+          <option value="3" selected>3（强）</option>
+        </select>
+      </div>
+      <div><label>对称增强</label>
+        <select id="teachAugK">
+          <option value="1">×1 关闭</option>
+          <option value="2">×2 中心对称</option>
+          <option value="4" selected>×4 旋转</option>
+          <option value="8">×8 旋转+翻转</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn" id="btnTeach">开始教学</button>
+    <button class="btn" id="btnTeachStop" disabled>停止教学</button>
+    <div class="hint">建议：自动循环（课程对齐）为主；手动教学时深度3 + ×4 增强，教 5-10 局后练习巩固。</div>
+  </div>
+
+    <div class="card" id="latest">
+      <h2>最新一局</h2>
+      <div id="latestGrid">
+        <div class="metric"><div class="name">局号</div><div class="val" id="mEp">—</div></div>
+        <div class="metric"><div class="name">得分</div><div class="val" id="mScore">—</div></div>
+        <div class="metric"><div class="name">最大格</div><div class="val" id="mTile">—</div></div>
+        <div class="metric"><div class="name">步数</div><div class="val" id="mMoves">—</div></div>
+        <div class="metric"><div class="name">非法步</div><div class="val" id="mInvalid">—</div></div>
+        <div class="metric"><div class="name">温度 T</div><div class="val" id="mTemp">—</div></div>
+      </div>
+    </div>
+
+    <div class="card" id="live">
+      <h2>当前操作</h2>
+      <div id="livePhase" class="idle">—</div>
+      <div id="liveStats">
+        <div class="metric"><div class="name">局内步数</div><div class="val" id="lvSteps">—</div></div>
+        <div class="metric"><div class="name">局内得分</div><div class="val" id="lvScore">—</div></div>
+        <div class="metric"><div class="name">局内非法</div><div class="val" id="lvInvalid">—</div></div>
+        <div class="metric"><div class="name">该局已进行</div><div class="val" id="lvElapsed">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col col-mid">
+    <div class="card" id="status">
+      <h2>状态</h2>
+      <div class="statrow">
+        <span>进度</span>
+        <b id="progressText">— / —</b>
+        <span class="kv">PID <b id="pid">—</b></span>
+        <span class="kv">权重就绪 <b id="weights">—</b></span>
+      </div>
+      <div id="progressWrap"><div id="progressBar"></div></div>
+      <div class="statrow">
+        <span class="kv">已用时</span> <b id="elapsed">—</b>
+        <span class="kv">预计剩余</span> <b id="eta">—</b>
+        <span class="kv">开始时间</span> <span id="started" style="color:var(--text)">—</span>
+      </div>
+
+      <div class="subhead">汇总统计</div>
+      <div id="summaryGrid">
+        <div class="metric"><div class="name">近25局均分</div><div class="val" id="sm25">—</div></div>
+        <div class="metric"><div class="name">近50局均分</div><div class="val" id="sm50">—</div></div>
+        <div class="metric"><div class="name">历史最高分</div><div class="val" id="smBest">—</div></div>
+        <div class="metric"><div class="name">256+ 次数</div><div class="val" id="sm256">—</div></div>
+        <div class="metric"><div class="name">512+ 次数</div><div class="val" id="sm512">—</div></div>
+        <div class="metric"><div class="name">非法率</div><div class="val" id="smInv">—</div></div>
+      </div>
+
+      <div class="subhead">最近评估</div>
+      <div id="evalBox">训练结束后显示 greedy 评估结果</div>
+    </div>
+
+    <div class="card" id="curve">
+      <h2>学习曲线（得分 · 滑窗平均）</h2>
+      <canvas id="curveCanvas"></canvas>
+    </div>
+  </div>
+
+  <div class="col col-right">
+    <div class="card" id="all">
+      <h2>全部局数 <span id="allCount" style="color:var(--text)"></span></h2>
+      <div id="allWrap">
+        <table>
+          <thead><tr>
+            <th>局</th><th>得分</th><th>最大格</th><th>步数</th><th>非法</th><th>T</th><th>base</th><th>重放</th><th>ms</th>
+          </tr></thead>
+          <tbody id="allBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" id="logcard">
+      <h2>
+        <span id="logTabs">
+          <a id="tabTrain" class="logtab active">练习日志</a>
+          <a id="tabTeach" class="logtab">教学日志</a>
+          <a id="tabAuto" class="logtab">循环日志</a>
+        </span>
+      </h2>
+      <div id="logBox" onscroll="if(this.scrollTop+this.clientHeight>=this.scrollHeight-8)autoScroll=true;else if(this.scrollTop+this.clientHeight<this.scrollHeight-60)autoScroll=false;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var lastDone = -1;
+  var autoScroll = true;
+  var curveData = null;
+  var records = [];
+  var logMode = "train";   // "train" | "teach" | "auto"
+  var weightData = { active: null, profiles: [] };
+  var weightBusy = false;
+  var opsRunning = false;
+
+  function fmtSeconds(s) {
+    if (s == null) return "—";
+    if (s < 60) return Math.round(s) + " 秒";
+    if (s < 3600) return Math.round(s / 60) + " 分";
+    return (s / 3600).toFixed(1) + " 小时";
+  }
+
+  function parseIso(text) {
+    var t = Date.parse(text);
+    return isNaN(t) ? null : t;
+  }
+
+  function setBadge(phase, running, teaching, autoInfo) {
+    var b = $("stateBadge");
+    if (autoInfo && autoInfo.running) {
+      var ph = autoInfo.phase === "teach" ? "教学" : "练习";
+      var cyc = autoInfo.cycle != null ? " " + autoInfo.cycle + "/" + autoInfo.cycles : "";
+      b.textContent = "● 自动循环" + cyc + " · " + ph;
+      b.className = "running";
+    } else if (teaching) { b.textContent = "● 教学中"; b.className = "running"; }
+    else if (running) { b.textContent = "● 练习中"; b.className = "running"; }
+    else if (phase === "finished") { b.textContent = "已结束"; b.className = "finished"; }
+    else if (phase === "starting") { b.textContent = "● 启动中…"; b.className = "running"; }
+    else { b.textContent = "空闲"; b.className = ""; }
+  }
+
+  function renderLive(st) {
+    var phase = $("livePhase");
+    var live = st.live, cur = st.current;
+    var teachInfo = st.teach || {};
+    var autoInfo = st.auto || {};
+    phase.className = "";
+    var steps = "—", score = "—", invalid = "—", elapsed = "—";
+    if (autoInfo.running && live) {
+      var sub = live.auto_phase === "teach" ? "教学" : "练习";
+      phase.textContent = "自动循环 " + live.cycle + "/" + live.cycles + " · " + sub
+        + " · " + live.episode + " 局" + (live.done ? "（刚完成）" : "");
+      phase.className = live.auto_phase === "teach" ? "eval" : "";
+      steps = live.steps; score = live.score;
+      invalid = live.auto_phase === "teach" ? 0 : live.invalid;
+      var ta = parseIso(live.updated_at);
+      if (ta != null) elapsed = fmtSeconds((Date.now() - ta) / 1000);
+    } else if (teachInfo.running && live && live.phase === "teach") {
+      phase.textContent = "教学中 · 第 " + live.episode + " 教学局" + (live.done ? "（刚完成）" : "");
+      phase.className = "eval";
+      steps = live.steps; score = live.score; invalid = live.invalid;
+      var tt = parseIso(live.updated_at);
+      if (tt != null) elapsed = fmtSeconds((Date.now() - tt) / 1000);
+    } else if (live && live.phase === "eval") {
+      phase.textContent = "greedy 评估 " + live.completed + "/" + live.total + " 局";
+      if (live.current_episode <= live.total) {
+        phase.textContent += " · 第 " + live.current_episode + " 局 " +
+          live.current_steps + " 步";
+        score = live.current_score;
+        steps = live.current_steps;
+      }
+      phase.className = "eval";
+      elapsed = fmtSeconds(live.eval_elapsed_s);
+    } else if (live && live.episode != null && live.phase !== "teach") {
+      phase.textContent = "第 " + live.episode + " 局进行中" + (live.done ? "（刚完成）" : "");
+      steps = live.steps; score = live.score; invalid = live.invalid;
+      var t0 = parseIso(live.updated_at);
+      if (t0 != null) elapsed = fmtSeconds((Date.now() - t0) / 1000);
+    } else if (cur && cur.synthesized) {
+      phase.textContent = "第 " + cur.episode + " 局进行中（旧进程，无逐步数据）";
+      elapsed = fmtSeconds(cur.cur_elapsed_s);
+    } else if (st.phase === "starting") {
+      phase.textContent = "构建大脑中…";
+    } else if (st.running) {
+      phase.textContent = "训练中（等待第一局回调）";
+    } else {
+      phase.textContent = "空闲";
+      phase.className = "idle";
+    }
+    $("lvSteps").textContent = steps;
+    $("lvScore").textContent = score;
+    $("lvInvalid").textContent = invalid;
+    $("lvElapsed").textContent = elapsed;
+  }
+
+  function renderRecords() {
+    $("allCount").textContent = "（" + records.length + " 局）";
+    var body = $("allBody");
+    var html = "";
+    var curEp = records.length > 0 ? records[records.length - 1].episode : -1;
+    for (var i = records.length - 1; i >= 0; i--) {
+      var r = records[i];
+      var cls = r.episode === curEp ? ' class="current-row"' : "";
+      html += "<tr" + cls + "><td>" + r.episode + "</td><td>" + r.score +
+        "</td><td>" + r.max_tile + "</td><td>" + r.moves +
+        "</td><td>" + (r.invalid != null ? r.invalid : "—") +
+        "</td><td>" + (r.temperature != null ? Number(r.temperature).toFixed(2) : "—") +
+        "</td><td>" + (r.baseline != null ? Number(r.baseline).toFixed(1) : "—") +
+        "</td><td>" + (r.replayed ? "✓" : "") +
+        "</td><td>" + (r.step_ms_mean != null ? Number(r.step_ms_mean).toFixed(1) : "—") + "</td></tr>";
+    }
+    body.innerHTML = html;
+  }
+
+  function renderSummary(st) {
+    var ids = ["sm25", "sm50", "smBest", "sm256", "sm512", "smInv"];
+    var s = st.summary;
+    if (!s) {
+      ids.forEach(function (id) { $(id).textContent = "—"; });
+      return;
+    }
+    $("sm25").textContent = s.mean25;
+    $("sm50").textContent = s.mean50;
+    $("smBest").textContent = s.best;
+    $("sm256").textContent = s.n256;
+    $("sm512").textContent = s.n512;
+    $("smInv").textContent = s.invalid_rate + "%";
+  }
+
+  function renderEval(st) {
+    var box = $("evalBox");
+    var live = st.live;
+    if (live && live.phase === "eval") {
+      var progress = "greedy 评估中：" + live.completed + " / " + live.total + " 局";
+      if (live.mean_score != null) {
+        progress += "<br>阶段成绩（非最终）：" +
+          "均分 " + Math.round(live.mean_score) +
+          " / 最高 " + live.max_score +
+          " / 平均最大格 " + Number(live.mean_max_tile).toFixed(0) +
+          " / 当前最佳 " + live.best_max_tile;
+      }
+      progress += "<br>已用时 " + fmtSeconds(live.eval_elapsed_s) +
+        " / 预计剩余 " + fmtSeconds(live.eta_s);
+      if (live.current_episode <= live.total) {
+        progress += "<br>当前第 " + live.current_episode + " 局：" +
+          live.current_steps + " 步 / 得分 " + live.current_score +
+          " / 最大格 " + live.current_max_tile;
+      }
+      box.innerHTML = progress;
+      return;
+    }
+    var e = st.eval;
+    if (!e || !e.trained) {
+      box.textContent = "训练结束后显示 greedy 评估结果";
+      return;
+    }
+    var t = e.trained;
+    var html = '<span class="tag">greedy ' + t.episodes + "局</span>：平均 " +
+      Math.round(t.mean_score) + " / 最高 " + t.max_score +
+      " / 平均最大格 " + Number(t.mean_max_tile).toFixed(0) +
+      " / 最佳 " + t.best_max_tile;
+    if (e.random) {
+      var r = e.random;
+      html += '<br><span class="tag rand">随机 ' + r.episodes + "局</span>：平均 " +
+        Math.round(r.mean_score) + " / 最高 " + r.max_score;
+    }
+    box.innerHTML = html;
+  }
+
+  function renderStatus(st) {
+    var teachInfo = st.teach || {};
+    var autoInfo = st.auto || {};
+    opsRunning = !!(st.running || teachInfo.running || autoInfo.running);
+    if (!weightBusy) {
+      loadWeights()["catch"](function () {});
+    }
+    setBadge(st.phase, st.running, teachInfo.running, autoInfo);
+    var done = st.done || 0, target = st.target || 0;
+    $("progressText").textContent = done + " / " + target + " 局";
+    $("pid").textContent = st.pid || "—";
+    var pct = target > 0 ? Math.min(100, done / target * 100) : 0;
+    $("progressBar").style.width = pct + "%";
+    $("elapsed").textContent = fmtSeconds(st.elapsed_s);
+    $("eta").textContent = fmtSeconds(st.eta_s);
+    $("weights").textContent = st.weights_ready ? "是" : "否";
+    $("started").textContent = st.started_at ? st.started_at.replace("T", " ").slice(0, 19) : "—";
+    // 练习按钮：教学/自动循环进行中禁用
+    $("btnStart").disabled = st.running || teachInfo.running || autoInfo.running;
+    $("btnStop").disabled = !st.running;
+    // 教学按钮：练习/自动循环进行中禁用
+    $("btnTeach").disabled = teachInfo.running || st.running || autoInfo.running;
+    $("btnTeachStop").disabled = !teachInfo.running;
+    // 自动循环按钮：练习/教学进行中禁用
+    $("btnAuto").disabled = autoInfo.running || st.running || teachInfo.running;
+    $("btnAutoStop").disabled = !autoInfo.running;
+    // 日志自动跟随当前活跃模式
+    if (autoInfo.running) logMode = "auto";
+    else if (teachInfo.running) logMode = "teach";
+    else if (st.running) logMode = "train";
+    syncLogTabs();
+    var lt = st.latest || {};
+    $("mEp").textContent = lt.episode != null ? lt.episode : "—";
+    $("mScore").textContent = lt.score != null ? lt.score : "—";
+    $("mTile").textContent = lt.max_tile != null ? lt.max_tile : "—";
+    $("mMoves").textContent = lt.moves != null ? lt.moves : "—";
+    $("mInvalid").textContent = lt.invalid != null ? lt.invalid : "—";
+    $("mTemp").textContent = lt.temperature != null ? lt.temperature : "—";
+    renderLive(st);
+    renderSummary(st);
+    renderEval(st);
+    if (done !== lastDone) {
+      lastDone = done;
+      loadCurve();
+      jsonFetch("/train/records").then(function (d) {
+        records = d.records || [];
+        renderRecords();
+      })["catch"](function () {});
+    }
+  }
+
+  function jsonFetch(url, options) {
+    return fetch(url, options).then(function (r) {
+      if (!r.ok) return r.json().then(function (j) { throw new Error(j.error || ("HTTP " + r.status)); });
+      return r.json();
+    });
+  }
+
+  function pollStatus() {
+    jsonFetch("/train/status").then(renderStatus)["catch"](function (e) {
+      $("stateBadge").textContent = "服务器错误: " + e.message;
+    });
+  }
+
+  function drawCurve() {
+    var canvas = $("curveCanvas");
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    if (w < 10 || h < 10) return;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    var ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+    if (!curveData || curveData.episodes.length === 0) {
+      ctx.fillStyle = "#a0a0a0"; ctx.font = "13px sans-serif";
+      ctx.fillText("训练日志为空", 12, h / 2);
+      return;
+    }
+    var xs = curveData.episodes, ys = curveData.scores, ts = curveData.tiles;
+    var n = xs.length;
+    var padL = 44, padR = 40, padT = 14, padB = 22;
+    // 左轴 = 得分（从 0 起），右轴 = 最大格（从 0 起）
+    var maxScore = Math.max.apply(null, ys.concat([1])) * 1.1;
+    var maxTile = Math.max.apply(null, ts.concat([1])) * 1.15;
+    var X = function (i) { return padL + (n <= 1 ? 0 : (xs[i] - 1) / (xs[n - 1] - xs[0])) * (w - padL - padR); };
+    var Ys = function (v) { return padT + (1 - v / maxScore) * (h - padT - padB); };
+    var Yt = function (v) { return padT + (1 - v / maxTile) * (h - padT - padB); };
+    ctx.strokeStyle = "#ededed"; ctx.fillStyle = "#767676"; ctx.font = "11px sans-serif";
+    for (var g = 0; g <= 4; g++) {
+      var frac = g / 4, yy = padT + (1 - frac) * (h - padT - padB);
+      ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(w - padR, yy); ctx.stroke();
+      ctx.fillText(Math.round(maxScore * frac), 6, yy + 4);           // 左：得分
+      ctx.fillText(Math.round(maxTile * frac), w - padR + 4, yy + 4); // 右：最大格
+    }
+    ctx.fillStyle = "#0078d7";
+    if (n > 1) {
+      // 单局得分（浅蓝细线，左轴）
+      ctx.beginPath();
+      for (var i = 0; i < n; i++) {
+        var px = X(i);
+        if (i === 0) ctx.moveTo(px, Ys(ys[i])); else ctx.lineTo(px, Ys(ys[i]));
+      }
+      ctx.strokeStyle = "#0078d7"; ctx.lineWidth = 1; ctx.globalAlpha = 0.4; ctx.stroke();
+      ctx.globalAlpha = 1;
+      var win = Math.min(25, n);
+      function rollingAt(arr, i) {
+        var a = Math.max(0, i - win + 1), sum = 0;
+        for (var kk = a; kk <= i; kk++) sum += arr[kk];
+        return sum / (i - a + 1);
+      }
+      // 得分滑窗（绿色粗线，左轴）
+      ctx.beginPath();
+      for (var i = 0; i < n; i++) {
+        var ppx = X(i);
+        if (i === 0) ctx.moveTo(ppx, Ys(rollingAt(ys, i)));
+        else ctx.lineTo(ppx, Ys(rollingAt(ys, i)));
+      }
+      ctx.strokeStyle = "#107c10"; ctx.lineWidth = 2; ctx.stroke();
+      // 最大格滑窗（青色粗线，右轴）
+      ctx.beginPath();
+      for (var i = 0; i < n; i++) {
+        var qpx = X(i);
+        if (i === 0) ctx.moveTo(qpx, Yt(rollingAt(ts, i)));
+        else ctx.lineTo(qpx, Yt(rollingAt(ts, i)));
+      }
+      ctx.strokeStyle = "#0e9ead"; ctx.lineWidth = 2; ctx.stroke();
+    }
+    ctx.font = "11px sans-serif";
+    ctx.fillStyle = "#107c10";
+    ctx.fillText("— 得分滑窗", padL + 4, padT + 2);
+    ctx.fillStyle = "#0e9ead";
+    ctx.fillText("— 最大格滑窗", padL + 78, padT + 2);
+    ctx.fillStyle = "#767676";
+    ctx.fillText("局号", w - padR - 30, h - 8);
+  }
+
+  function loadCurve() {
+    jsonFetch("/learning").then(function (d) {
+      curveData = d;
+      drawCurve();
+    })["catch"](function () {});
+  }
+
+  function renderLog(lines) {
+    var box = $("logBox");
+    var nearBottom = autoScroll;
+    box.textContent = lines.length ? lines.join("\n") : "";
+    if (nearBottom) box.scrollTop = box.scrollHeight;
+  }
+
+  function syncLogTabs() {
+    $("tabTrain").className = "logtab" + (logMode === "train" ? " active" : "");
+    $("tabTeach").className = "logtab" + (logMode === "teach" ? " active" : "");
+    $("tabAuto").className = "logtab" + (logMode === "auto" ? " active" : "");
+  }
+
+  $("tabTrain").addEventListener("click", function () { logMode = "train"; syncLogTabs(); pollLog(); });
+  $("tabTeach").addEventListener("click", function () { logMode = "teach"; syncLogTabs(); pollLog(); });
+  $("tabAuto").addEventListener("click", function () { logMode = "auto"; syncLogTabs(); pollLog(); });
+
+  function pollLog() {
+    var url = logMode === "teach" ? "/teach/log"
+      : logMode === "auto" ? "/auto/log" : "/train/log";
+    jsonFetch(url).then(function (d) { renderLog(d.lines || []); })["catch"](function () {});
+  }
+
+  function post(url, body) {
+    return jsonFetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {})
+    });
+  }
+
+  // --- 命名权重管理 ---
+  function currentProfile() {
+    for (var i = 0; i < weightData.profiles.length; i++) {
+      if (weightData.profiles[i].id === weightData.active) return weightData.profiles[i];
+    }
+    return null;
+  }
+
+  function renderWeights() {
+    var sel = $("weightSelect");
+    var signature = weightData.profiles.map(function (p) {
+      return p.id + "=" + p.name + "=" + p.episodes;
+    }).join("|");
+    if (sel.dataset.signature !== signature) {
+      sel.textContent = "";
+      weightData.profiles.forEach(function (p) {
+        var opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.built_in ? p.name : p.name + "（" + p.episodes + " 局）";
+        sel.appendChild(opt);
+      });
+      sel.dataset.signature = signature;
+    }
+    if (weightData.active) sel.value = weightData.active;
+    var locked = opsRunning || weightBusy;
+    sel.disabled = locked;
+    var cp = currentProfile();
+    $("btnWeightCopy").disabled = locked;
+    $("btnWeightRandom").disabled = locked;
+    $("btnWeightRename").disabled = locked || !cp || cp.built_in;
+    $("btnWeightDelete").disabled = locked || !cp || cp.built_in;
+  }
+
+  function loadWeights() {
+    return jsonFetch("/weights").then(function (d) {
+      weightData = d;
+      renderWeights();
+    });
+  }
+
+  function afterWeightChanged() {
+    weightBusy = false;
+    renderWeights();
+    // 新权重下的曲线、局表与日志都不同，立即刷新一次
+    pollStatus();
+    loadCurve();
+    pollLog();
+  }
+
+  function selectWeight(id) {
+    weightBusy = true;
+    renderWeights();
+    post("/weights/select", { id: id }).then(function () {
+      afterWeightChanged();
+    })["catch"](function (e) {
+      weightBusy = false;
+      alert("切换权重失败：" + e.message);
+      loadWeights()["catch"](function () {});
+    });
+  }
+
+  function createWeight(mode) {
+    var cur = currentProfile();
+    var suggested = mode === "copy"
+      ? (cur ? cur.name : "") + " 副本"
+      : "新随机权重";
+    var input = prompt(
+      mode === "copy" ? "为另存的新权重命名：" : "为新随机权重命名：",
+      suggested.trim(),
+    );
+    if (input == null) return;
+    var name = input.trim();
+    if (!name) return;
+    if (mode === "random" &&
+        !confirm("随机权重从零开始，不会保留当前水平，确定新建？")) return;
+    weightBusy = true;
+    renderWeights();
+    post("/weights/create", { name: name, mode: mode }).then(function () {
+      afterWeightChanged();
+    })["catch"](function (e) {
+      weightBusy = false;
+      alert("新建权重失败：" + e.message);
+      renderWeights();
+    });
+  }
+
+  function renameActive() {
+    var cur = currentProfile();
+    if (!cur) return;
+    var input = prompt("新名称：", cur.name);
+    if (input == null) return;
+    var name = input.trim();
+    if (!name) return;
+    weightBusy = true;
+    renderWeights();
+    post("/weights/rename", { id: cur.id, name: name }).then(function () {
+      weightBusy = false;
+      loadWeights()["catch"](function () {});
+    })["catch"](function (e) {
+      weightBusy = false;
+      alert("重命名失败：" + e.message);
+      renderWeights();
+    });
+  }
+
+  function deleteActive() {
+    var cur = currentProfile();
+    if (!cur) return;
+    if (!confirm("确定删除权重「" + cur.name + "」？其权重与练习/教学记录都会被删除，无法恢复。")) return;
+    weightBusy = true;
+    renderWeights();
+    var chain = Promise.resolve();
+    // 后端不允许删除使用中的权重：若删的正是当前权重，先切回默认
+    if (cur.id === weightData.active) {
+      chain = post("/weights/select", { id: "default" });
+    }
+    chain.then(function () {
+      return post("/weights/delete", { id: cur.id });
+    }).then(function () {
+      afterWeightChanged();
+    })["catch"](function (e) {
+      weightBusy = false;
+      alert("删除失败：" + e.message);
+      loadWeights()["catch"](function () {});
+    });
+  }
+
+  $("weightSelect").addEventListener("change", function () {
+    if (this.value && this.value !== weightData.active) selectWeight(this.value);
+  });
+  $("btnWeightCopy").addEventListener("click", function () { createWeight("copy"); });
+  $("btnWeightRandom").addEventListener("click", function () { createWeight("random"); });
+  $("btnWeightRename").addEventListener("click", renameActive);
+  $("btnWeightDelete").addEventListener("click", deleteActive);
+
+  $("btnStart").addEventListener("click", function () {
+    var eps = parseInt($("episodes").value, 10);
+    var resume = $("resume").checked;
+    post("/train/start", { episodes: eps, resume: resume }).then(function () {
+      logMode = "train";
+      pollStatus(); pollLog();
+    })["catch"](function (e) { alert("启动失败：" + e.message); });
+  });
+
+  $("btnStop").addEventListener("click", function () {
+    post("/train/stop", {}).then(function () {
+      setTimeout(pollStatus, 800);
+    })["catch"](function (e) { alert("停止失败：" + e.message); });
+  });
+
+  $("btnTeach").addEventListener("click", function () {
+    var eps = parseInt($("teachEpisodes").value, 10);
+    post("/teach/start", {
+      episodes: eps,
+      depth: parseInt($("teachDepth").value, 10),
+      aug_k: parseInt($("teachAugK").value, 10),
+    }).then(function () {
+      logMode = "teach";
+      pollStatus(); pollLog();
+    })["catch"](function (e) { alert("教学启动失败：" + e.message); });
+  });
+
+  $("btnTeachStop").addEventListener("click", function () {
+    post("/teach/stop", {}).then(function () {
+      setTimeout(pollStatus, 800);
+    })["catch"](function (e) { alert("停止教学失败：" + e.message); });
+  });
+
+  $("btnAuto").addEventListener("click", function () {
+    post("/auto/start", {
+      cycles: parseInt($("autoCycles").value, 10),
+      teach_episodes: parseInt($("autoTeach").value, 10),
+      practice_episodes: parseInt($("autoPractice").value, 10),
+      aug_k: parseInt($("autoAugK").value, 10),
+      teach_schedule: $("autoSchedule").value === "1",
+    }).then(function () {
+      logMode = "auto";
+      pollStatus(); pollLog();
+    })["catch"](function (e) { alert("自动循环启动失败：" + e.message); });
+  });
+
+  $("btnAutoStop").addEventListener("click", function () {
+    post("/auto/stop", {}).then(function () {
+      setTimeout(pollStatus, 800);
+    })["catch"](function (e) { alert("停止自动循环失败：" + e.message); });
+  });
+
+  if (window.ResizeObserver) {
+    new ResizeObserver(function () { drawCurve(); }).observe($("curve"));
+  } else {
+    window.addEventListener("resize", drawCurve);
+  }
+  loadCurve();
+  pollStatus();
+  pollLog();
+  setInterval(pollStatus, 2000);
+  setInterval(pollLog, 2000);
+})();
+</script>
+</body>
+</html>
